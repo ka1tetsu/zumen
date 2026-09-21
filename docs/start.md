@@ -33,15 +33,16 @@ npm start
 ### B-1. GitHub Pages を使う
 
 このリポジトリには、`main` に入ったら自動で公開する仕掛け
-(`.github/workflows/pages.yml`)が入っています。やることは1つだけです。
+(`.github/workflows/pages.yml`)が入っています。やることは2つだけです。
 
-- **リポジトリを public にする**
-  (Settings → General → いちばん下の Danger Zone → Change visibility)
-  ※ private のまま Pages を使うには GitHub の有料プランが必要です。
-  このアプリにパスワードもAPIキーも入っていないので、public にして困るものはありません。
-
-Pages の有効化そのものは、ワークフローが自分でやります
-(`configure-pages` の `enablement`)。Settings → Pages を触る必要はありません。
+1. **リポジトリを public にする**
+   (Settings → General → いちばん下の Danger Zone → Change visibility)
+   ※ private のまま Pages を使うには GitHub の有料プランが必要です。
+   このアプリにパスワードもAPIキーも入っていないので、public にして困るものはありません。
+2. **Settings → Pages → Source を「GitHub Actions」にする**
+   ※ この2番は手でやるしかありません。Pages サイトの新規作成は管理者権限が要る操作で、
+   ワークフローのトークンでは弾かれます
+   (`Create Pages site failed. Resource not accessible by integration`)。
 
 これで `main` にマージするたび、自動で
 `https://ka1tetsu.github.io/zumen/` に反映されます。
