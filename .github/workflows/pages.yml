@@ -1,7 +1,12 @@
 # public/ をそのまま GitHub Pages に置く。
 #
-# Settings をいじらなくても、このワークフロー自身が Pages を有効にする
-# (configure-pages の enablement)。リポジトリが public なら、これだけで公開される。
+# 先に一度だけ、GitHub の Settings → Pages → Source を
+# 「GitHub Actions」にしておくこと。
+# 下の enablement: true は、Pages が未設定なら有効化を試みる設定だが、
+# サイトの新規作成は管理者権限が要るため、Actions のトークンでは弾かれる
+# (Create Pages site failed. Resource not accessible by integration)。
+# すでに有効になっていれば、この行は何もしない。
+#
 # private のまま Pages を使うには GitHub の有料プランが必要なので、
 # そのときは Cloudflare Pages か Netlify に置く(docs/start.md 参照)。
 name: アプリを公開する
@@ -30,7 +35,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
         with:
-          # Pages がまだ有効になっていなければ、ここで有効にする
+          # すでに有効なら何もしない(新規作成は権限不足で通らない。上のコメント参照)
           enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
