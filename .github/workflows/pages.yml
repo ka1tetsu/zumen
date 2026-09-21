@@ -1,0 +1,39 @@
+# public/ をそのまま GitHub Pages に置く。
+#
+# Settings をいじらなくても、このワークフロー自身が Pages を有効にする
+# (configure-pages の enablement)。リポジトリが public なら、これだけで公開される。
+# private のまま Pages を使うには GitHub の有料プランが必要なので、
+# そのときは Cloudflare Pages か Netlify に置く(docs/start.md 参照)。
+name: アプリを公開する
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+        with:
+          # Pages がまだ有効になっていなければ、ここで有効にする
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - id: deploy
+        uses: actions/deploy-pages@v4

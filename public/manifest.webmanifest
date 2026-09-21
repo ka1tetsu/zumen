@@ -1,0 +1,16 @@
+{
+  "name": "クロスけいさん機",
+  "short_name": "クロス計算",
+  "description": "図面の写真から、壁紙(クロス)の必要ロール数を計算します",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f6f9",
+  "theme_color": "#0b3d91",
+  "lang": "ja",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
