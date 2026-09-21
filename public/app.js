@@ -6,6 +6,7 @@ import {
   DEFAULTS, KIND_LABELS, MATERIALS,
   calcProject, defaultProduct, emptyProject, findMaterial, formatOrderText, mmToM,
 } from './engine.js';
+import { readNumbers } from './ocr.js';
 
 /* ------------------------------------------------------------------ 保存 */
 const KEY = { project: 'kurosu.project', history: 'kurosu.history', pref: 'kurosu.pref' };
@@ -21,7 +22,7 @@ if (!project.options) project.options = { ...DEFAULTS };
 project.options = { ...DEFAULTS, ...project.options };
 if (!project.products || !project.products.length) project.products = [defaultProduct()];
 
-let pref = load(KEY.pref, { fontsize: 'l', voice: true, apiBase: '' });
+let pref = load(KEY.pref, { fontsize: 'l', voice: true });
 let photos = [];          // { dataUrl, mediaType, base64 }
 let result = null;
 let editingId = null;
@@ -66,6 +67,7 @@ function speak(text) {
 const SCREENS = {
   home:     { title: 'クロスけいさん機', back: false },
   photo:    { title: 'しゃしんで はかる', back: true },
+  pick:     { title: 'すうじを えらぶ', back: true },
   items:    { title: 'はかる ところ', back: true },
   form:     { title: 'すうじを いれる', back: true },
   result:   { title: 'けっか', back: true },
@@ -83,6 +85,7 @@ function go(name) {
   $('#barTitle').textContent = SCREENS[name].title;
   $('#backBtn').hidden = !SCREENS[name].back;
   window.scrollTo(0, 0);
+  if (name === 'pick') renderPick();
   if (name === 'items') renderItems();
   if (name === 'result') renderResult();
   if (name === 'history') renderHistory();
@@ -96,6 +99,7 @@ document.addEventListener('click', (e) => {
 $('#backBtn').addEventListener('click', () => {
   if (current === 'form') go('items');
   else if (current === 'result') go('items');
+  else if (current === 'pick') go('photo');
   else go('home');
 });
 
@@ -130,7 +134,7 @@ function shrink(file) {
         const ctx = c.getContext('2d');
         ctx.drawImage(img, 0, 0, w, h);
         const dataUrl = c.toDataURL('image/jpeg', 0.85);
-        resolve({ dataUrl, mediaType: 'image/jpeg', base64: dataUrl.split(',')[1] });
+        resolve({ dataUrl, width: w, height: h });
       };
       img.src = reader.result;
     };
@@ -166,72 +170,168 @@ function renderShots() {
   $('#readBtn').hidden = photos.length === 0;
 }
 
-$('#readBtn').addEventListener('click', readDrawing);
+$('#readBtn').addEventListener('click', runOcr);
 
-async function readDrawing() {
+/** 写真の中の数字を、この端末だけで読む */
+async function runOcr() {
   const status = $('#readStatus');
   status.hidden = false;
   status.className = 'status';
-  status.innerHTML = '<span class="spin"></span> よみとっています… (30びょうほど かかります)';
+  status.innerHTML = '<span class="spin"></span> よみとる したくを しています…';
   $('#readBtn').disabled = true;
   try {
-    const base = (pref.apiBase || '').replace(/\/$/, '');
-    const res = await fetch(base + '/api/read-drawing', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        images: photos.map((p) => ({ media_type: p.mediaType, data: p.base64 })),
-      }),
+    const numbers = await readNumbers(photos, (label, progress) => {
+      const pct = Math.round((progress || 0) * 100);
+      status.innerHTML = `<span class="spin"></span> ${label}… ${pct}%`;
     });
-    if (!res.ok) {
-      const t = await res.text();
-      throw new Error(`サーバーが こたえません (${res.status}) ${t.slice(0, 120)}`);
+    if (numbers.length === 0) {
+      status.className = 'status err';
+      status.innerHTML = 'すうじが 見つかりませんでした。<br>'
+        + 'もっと 近くで、まっすぐ、明るいところで とりなおすと よみやすくなります。<br><br>'
+        + 'または「じぶんで いれる」で おねがいします。';
+      return;
     }
-    const data = await res.json();
-    const added = mergeReadResult(data);
-    status.innerHTML = `よみとりました。<b>${added}</b> か所です。<br>すうじが あっているか、かならず たしかめてください。`;
-    speak(`${added}か所、読み取りました。数字を確かめてください。`);
-    setTimeout(() => go('items'), 900);
+    status.hidden = true;
+    pick = { numbers, kind: 'wall', step: 0, values: [], added: 0 };
+    speak(`${numbers.length}この すうじが 見つかりました。`);
+    go('pick');
   } catch (err) {
     status.className = 'status err';
-    status.innerHTML = `よみとれませんでした。<br>${String(err.message || err)}<br><br>おそれいりますが「じぶんで いれる」で おねがいします。`;
+    status.innerHTML = `よみとれませんでした。<br>${String(err.message || err)}<br><br>`
+      + 'おそれいりますが「じぶんで いれる」で おねがいします。';
   } finally {
     $('#readBtn').disabled = false;
   }
 }
 
-/** AI が返した拾い出しを、いまの案件に足す */
-function mergeReadResult(data) {
-  const list = Array.isArray(data.items) ? data.items : [];
-  let n = 0;
-  for (const raw of list) {
-    const kind = ['wall', 'ceiling', 'niche', 'cove'].includes(raw.kind) ? raw.kind : 'wall';
-    const item = {
-      id: uid(),
-      kind,
-      name: raw.name || KIND_LABELS[kind],
-      productId: project.products[0].id,
-      count: Math.max(1, nz(raw.count) || 1),
-      conf: raw.confidence || 'medium',
-      source: raw.source_text || '',
-      openings: [],
-    };
-    if (kind === 'cove') {
-      item.lengthMm = nz(raw.length_mm) || nz(raw.width_mm);
-      item.developMm = nz(raw.develop_mm);
-      item.parts = null;
-    } else {
-      item.widthMm = nz(raw.width_mm);
-      item.heightMm = nz(raw.height_mm);
-      if (kind === 'niche') item.depthMm = nz(raw.depth_mm);
-    }
-    project.items.push(item);
-    n++;
+/* ====================================================== すうじを えらぶ */
+let pick = { numbers: [], kind: 'wall', step: 0, values: [], added: 0 };
+
+/** 種類ごとに、何をどの順番で聞くか */
+const PICK_STEPS = {
+  wall: [
+    { key: 'widthMm', ask: 'かべの よこはば', hint: 'かべの 長い方向の ながさ' },
+    { key: 'heightMm', ask: 'かべの たかさ', hint: '天井高。ふつうは 2400 ぐらい', height: true },
+  ],
+  ceiling: [
+    { key: 'widthMm', ask: 'へやの よこはば', hint: '' },
+    { key: 'heightMm', ask: 'へやの おくゆき', hint: '' },
+  ],
+  niche: [
+    { key: 'widthMm', ask: 'かざり棚の よこはば', hint: '開口の よこ' },
+    { key: 'heightMm', ask: 'かざり棚の たかさ', hint: '開口の たて' },
+    { key: 'depthMm', ask: 'かざり棚の おくゆき', hint: 'ふところの ふかさ' },
+  ],
+  cove: [
+    { key: 'lengthMm', ask: '間接照明の ながさ', hint: '照明が 通っている ながさ' },
+  ],
+};
+
+const PICK_KINDS = [['wall', 'かべ'], ['ceiling', '天井'], ['niche', 'かざり棚'], ['cove', '照明']];
+const QUICK_HEIGHTS = [2400, 2500];
+
+function renderPick() {
+  // 何を足すか
+  const kinds = $('#pickKinds');
+  kinds.innerHTML = '';
+  for (const [kind, label] of PICK_KINDS) {
+    const b = el('button', pick.kind === kind ? 'on' : null, label);
+    b.addEventListener('click', () => {
+      pick.kind = kind;
+      pick.step = 0;
+      pick.values = [];
+      renderPick();
+    });
+    kinds.append(b);
   }
-  if (data.title && !project.title) project.title = data.title;
-  persist();
-  return n;
+
+  const steps = PICK_STEPS[pick.kind];
+  const step = steps[pick.step];
+  const maru = ['①', '②', '③'][pick.step] || '';
+
+  const ask = $('#pickAsk');
+  ask.innerHTML = '';
+  ask.append(document.createTextNode(`${maru} ${step.ask} は どれですか?`));
+  const sub = el('small', null, step.hint
+    ? `${step.hint} / しゃしんの 赤い わくを タップ`
+    : 'しゃしんの 赤い わくの 数字を えらんでください');
+  ask.append(sub);
+
+  // 写真(読めた数字に わくを出す)
+  const box = $('#pickPhotos');
+  box.innerHTML = '';
+  if (pick.added > 0) {
+    box.append(el('div', 'pickcount', `いま ${pick.added} か所 たしました`));
+  }
+  photos.forEach((p, i) => {
+    const nums = pick.numbers.filter((n) => n.photoIndex === i);
+    if (!nums.length) return;
+    const wrap = el('div', 'pickphoto');
+    const img = el('img');
+    img.src = p.dataUrl;
+    img.alt = `ずめん ${i + 1}`;
+    wrap.append(img);
+    for (const n of nums) {
+      const b = el('div', 'box');
+      b.style.left = `${(n.bbox.x0 / p.width) * 100}%`;
+      b.style.top = `${(n.bbox.y0 / p.height) * 100}%`;
+      b.style.width = `${((n.bbox.x1 - n.bbox.x0) / p.width) * 100}%`;
+      b.style.height = `${((n.bbox.y1 - n.bbox.y0) / p.height) * 100}%`;
+      b.append(el('b', null, String(n.no)));
+      b.addEventListener('click', () => choosePick(n.mm));
+      wrap.append(b);
+    }
+    box.append(wrap);
+  });
+
+  // 数字のボタン
+  const grid = $('#pickNums');
+  grid.innerHTML = '';
+  const addBtn = (label, mm, no, quick, hint) => {
+    const b = el('button', 'numbtn' + (quick ? ' quick' : ''));
+    b.append(el('span', 'no', no));
+    b.append(document.createTextNode(label));
+    b.append(el('span', 'u', 'mm'));
+    if (hint) b.append(el('span', 'hint', hint));
+    b.addEventListener('click', () => choosePick(mm));
+    grid.append(b);
+  };
+  if (step.height) {
+    for (const h of QUICK_HEIGHTS) addBtn(String(h), h, '✓', true, 'よくある たかさ');
+  }
+  for (const n of pick.numbers) {
+    addBtn(String(n.mm), n.mm, String(n.no), false, n.isHeight ? '天井高(CH)' : '');
+  }
 }
+
+function choosePick(mm) {
+  const steps = PICK_STEPS[pick.kind];
+  pick.values[pick.step] = mm;
+  if (pick.step < steps.length - 1) {
+    pick.step += 1;
+    renderPick();
+    speak(`つぎは、${steps[pick.step].ask} です。`);
+    return;
+  }
+  const it = newItem(pick.kind);
+  steps.forEach((st, i) => { it[st.key] = pick.values[i]; });
+  project.items.push(it);
+  persist();
+  pick.added += 1;
+  pick.step = 0;
+  pick.values = [];
+  if (pick.kind === 'cove') {
+    // 展開幅は図面に出ていないことが多いので、そのまま入力画面へ
+    toast('ながさを 入れました。つぎは てんかいはば です');
+    openForm(it.id);
+    return;
+  }
+  toast(`${it.name} を たしました`);
+  renderPick();
+}
+
+$('#pickManual').addEventListener('click', () => go('items'));
+$('#pickDone').addEventListener('click', () => go('items'));
 
 /* ============================================================ 面の一覧 */
 $('#projTitle').addEventListener('input', (e) => { project.title = e.target.value; persist(); });
@@ -792,8 +892,8 @@ function renderSettings() {
   vcb.addEventListener('change', () => { pref.voice = vcb.checked; vt.classList.toggle('on', vcb.checked); save(KEY.pref, pref); });
   vt.append(vcb, document.createTextNode('こえで よみあげる'));
   m.append(vt);
-  m.append(textField('よみとりサーバー (ふつうは 空のまま)', pref.apiBase || '', (v) => { pref.apiBase = v.trim(); save(KEY.pref, pref); }));
-  m.append(el('div', 'note', 'しゃしんの よみとりは、サーバーに おくって Claude が よみます。'));
+  m.append(el('div', 'note', 'しゃしんの よみとりは、この スマホの 中だけで します。'
+    + 'どこにも おくりません。お金も かかりません。'));
   box.append(m);
 }
 

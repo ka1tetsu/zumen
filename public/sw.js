@@ -1,6 +1,9 @@
 /* 現場は電波が悪い。計算だけはオフラインでも動くようにしておく。 */
-const CACHE = 'kurosu-v1';
-const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'engine.js', 'manifest.webmanifest', 'icon.svg'];
+const CACHE = 'kurosu-v2';
+// 最初に入れておくのは軽いものだけ。OCR の一式(10MB ほど)は
+// 一度使ったときに、下の fetch でキャッシュに入る。
+const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'engine.js', 'ocr.js', 'ocr-parse.js',
+  'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

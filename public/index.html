@@ -61,11 +61,24 @@
 
   <button id="readBtn" class="huge go" hidden>
     <span class="num">🔍</span>
-    <span class="txt">よみとる<small>すこし じかんが かかります</small></span>
+    <span class="txt">すうじを よみとる<small>この スマホの 中だけで よみます</small></span>
   </button>
 
   <div id="readStatus" class="status" hidden></div>
   <button class="flat" data-go="items">しゃしんを つかわずに いれる</button>
+</section>
+
+<!-- ============ 読み取った数字をえらぶ ============ -->
+<section id="s-pick" class="screen" hidden>
+  <div id="pickKinds" class="kindrow"></div>
+  <div id="pickAsk" class="ask"></div>
+  <div id="pickPhotos"></div>
+  <div id="pickNums" class="numgrid"></div>
+  <button id="pickManual" class="flat">この なかに ない → じぶんで いれる</button>
+  <button id="pickDone" class="huge go">
+    <span class="num">✓</span>
+    <span class="txt">えらび おわった</span>
+  </button>
 </section>
 
 <!-- ============ 面の一覧 ============ -->

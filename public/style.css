@@ -250,3 +250,51 @@ table.rows th:first-child, table.rows td:first-child { text-align: left; }
   :root:not([data-theme="light"]) .item .tag.hard { background: #40301c; color: #ffc489; }
   :root:not([data-theme="light"]) .figure { background: #161c24; }
 }
+
+/* ---------- 読み取った数字をえらぶ ---------- */
+.kindrow { display: flex; gap: .4em; margin-bottom: .7em; }
+.kindrow button {
+  flex: 1; min-height: 3.2em; padding: .2em;
+  border: 3px solid var(--line); border-radius: .6em; background: var(--card);
+  color: var(--ink); font-family: inherit; font-size: .82em; font-weight: 800;
+}
+.kindrow button.on { border-color: var(--primary); background: #e6ecf6; color: var(--primary); }
+
+.ask {
+  background: var(--primary); color: #fff; border-radius: .7em;
+  padding: .7em .8em; margin-bottom: .7em; font-size: 1.15em; font-weight: 800;
+}
+.ask small { display: block; font-size: .62em; font-weight: 700; opacity: .92; margin-top: .2em; }
+
+.numgrid { display: grid; grid-template-columns: 1fr 1fr; gap: .6em; margin-bottom: .8em; }
+.numbtn {
+  position: relative; min-height: 4.4em; padding: .5em .3em .3em;
+  border: 3px solid var(--line); border-radius: .6em; background: var(--card);
+  color: var(--ink); font-family: inherit; font-size: 1.5em; font-weight: 900;
+  box-shadow: 0 3px 0 rgba(0,0,0,.10);
+}
+.numbtn:active { transform: translateY(2px); box-shadow: none; }
+.numbtn .no {
+  position: absolute; top: .2em; left: .3em;
+  display: grid; place-items: center; width: 1.6em; height: 1.6em;
+  border-radius: 50%; background: var(--primary); color: #fff; font-size: .45em;
+}
+.numbtn .u { font-size: .5em; font-weight: 800; color: var(--sub); margin-left: .15em; }
+.numbtn .hint { display: block; font-size: .38em; font-weight: 800; color: var(--go); }
+.numbtn.quick { border-color: var(--go); }
+.numbtn.quick .no { background: var(--go); }
+
+.pickphoto {
+  position: relative; margin-bottom: .8em; background: #fff;
+  border: 3px solid var(--line); border-radius: .6em; overflow: hidden;
+}
+.pickphoto img { width: 100%; display: block; }
+.pickphoto .box {
+  position: absolute; min-width: 22px; min-height: 16px;
+  border: 2px solid #e2001a; border-radius: 2px;
+}
+.pickphoto .box b {
+  position: absolute; top: -15px; left: -2px; padding: 0 4px; border-radius: 3px;
+  background: #e2001a; color: #fff; font-size: 13px; font-weight: 800; line-height: 15px;
+}
+.pickcount { font-weight: 800; color: var(--go); margin-bottom: .6em; }
