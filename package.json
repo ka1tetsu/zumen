@@ -1,0 +1,15 @@
+{
+  "name": "kurosu-keisanki",
+  "version": "1.0.0",
+  "private": true,
+  "description": "図面の写真から壁紙(クロス)の必要量を計算する、内装屋さんのための道具",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server/index.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.0"
+  }
+}
