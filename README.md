@@ -50,8 +50,10 @@
 
 ## 動かしかた
 
+**→ 手順は [docs/start.md](docs/start.md) にまとめてあります**
+(今すぐ試す / 現場でいつでも使えるようにする / スマホに入れる)。
+
 ```bash
-npm install     # 開発用(OCR の一式を取り込むときだけ必要)
 npm start       # → http://localhost:8787
 ```
 
