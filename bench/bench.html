@@ -1,0 +1,32 @@
+<!doctype html><meta charset="utf-8"><title>bench</title>
+<script type="module">
+import { readNumbers } from './ocr.js';
+async function load(src, maxPx) {
+  const img = new Image(); img.src = src; await img.decode();
+  const s = Math.min(1, maxPx / Math.max(img.width, img.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  return { dataUrl: c.toDataURL('image/jpeg', 0.85), width: c.width, height: c.height };
+}
+window.bench = async (names, maxPx, opts) => {
+  const truth = await (await fetch('set/truth.json')).json();
+  const rows = [];
+  for (const n of names) {
+    const photo = await load(`set/${n}.jpg`, maxPx);
+    const t0 = performance.now();
+    const found = await readNumbers([photo], null, opts);
+    const ms = Math.round(performance.now() - t0);
+    const pool = found.map((f) => f.mm);
+    const take = (list) => { const p = [...pool]; let hit = 0;
+      for (const v of list) { const i = p.indexOf(v); if (i >= 0) { hit++; p.splice(i, 1); } } return { hit, left: p }; };
+    const all = take(truth.all);
+    // 縦書きの 3 つ(2400 のうち 1 つは CH で横書きなので、2400 が 2 つ拾えて初めて縦も読めたことになる)
+    const cnt = (v) => pool.filter((x) => x === v).length;
+    const vHit = (cnt(1200) >= 1) + (cnt(900) >= 1) + (cnt(2400) >= 2);
+    rows.push({ name: n, hit: all.hit, of: truth.all.length, vHit, vOf: 3, extra: all.left, ms });
+  }
+  return rows;
+};
+window.ready = true;
+</script>

@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node server/index.mjs",
     "test": "node --test test/*.test.mjs",
-    "vendor": "node scripts/vendor.mjs"
+    "vendor": "node scripts/vendor.mjs",
+    "bench": "node bench/run.mjs"
   },
   "devDependencies": {
     "@tesseract.js-data/eng": "^1.0.0",
