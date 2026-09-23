@@ -26,6 +26,7 @@ let pref = load(KEY.pref, { fontsize: 'l', voice: true });
 let photos = [];          // { dataUrl, mediaType, base64 }
 let result = null;
 let editingId = null;
+let viewerPhoto = null;   // 写真を大きく見ているときは、その写真の番号
 
 const persist = () => save(KEY.project, project);
 
@@ -44,12 +45,26 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 const nz = (v) => (Number.isFinite(+v) ? +v : 0);
 
 let toastTimer = null;
-function toast(msg) {
+/**
+ * 画面の下に短い知らせを出す。action を渡すと大きなボタンが付く(「もとに もどす」など)。
+ * ボタン付きのときは、押す間があるよう長めに出しておく。
+ */
+function toast(msg, action) {
   const t = $('#toast');
-  t.textContent = msg;
+  t.innerHTML = '';
+  t.append(el('span', null, msg));
+  if (action) {
+    const b = el('button', 'toast-btn', action.label);
+    b.addEventListener('click', () => {
+      t.hidden = true;
+      clearTimeout(toastTimer);
+      action.onClick();
+    });
+    t.append(b);
+  }
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
+  toastTimer = setTimeout(() => { t.hidden = true; }, action ? 7000 : 2600);
 }
 
 function speak(text) {
@@ -77,6 +92,10 @@ const SCREENS = {
 let current = 'home';
 
 function go(name) {
+  if (viewerPhoto !== null) closeViewer();
+  // 前の画面の知らせ(「もとに もどす」付きなど)を、別の画面に持ちこまない
+  $('#toast').hidden = true;
+  clearTimeout(toastTimer);
   current = name;
   for (const k of Object.keys(SCREENS)) {
     const s = document.getElementById('s-' + k);
@@ -116,7 +135,9 @@ $('#fontBtn').addEventListener('click', () => {
 });
 
 /* =================================================================== 写真 */
-const MAX_PX = 1600;
+// 写真はここまで縮める。1600px だと A3 を丸ごと撮ったときの寸法の字が潰れて読めない。
+// 拡大して読んでも、遅くなるわりに当たりはほとんど増えなかった(試験で確認)。
+const MAX_PX = 2400;
 
 function shrink(file) {
   return new Promise((resolve, reject) => {
@@ -230,6 +251,13 @@ const PICK_STEPS = {
 const PICK_KINDS = [['wall', 'かべ'], ['ceiling', '天井'], ['niche', 'かざり棚'], ['cove', '照明']];
 const QUICK_HEIGHTS = [2400, 2500];
 
+/** いま聞いていること。一覧画面と、写真を大きく見る画面の両方で使う */
+function pickQuestion() {
+  const step = PICK_STEPS[pick.kind][pick.step];
+  const maru = ['①', '②', '③'][pick.step] || '';
+  return { step, main: `${maru} ${step.ask} は どれですか?` };
+}
+
 function renderPick() {
   // 何を足すか
   const kinds = $('#pickKinds');
@@ -245,17 +273,15 @@ function renderPick() {
     kinds.append(b);
   }
 
-  const steps = PICK_STEPS[pick.kind];
-  const step = steps[pick.step];
-  const maru = ['①', '②', '③'][pick.step] || '';
+  const { step, main } = pickQuestion();
 
   const ask = $('#pickAsk');
   ask.innerHTML = '';
-  ask.append(document.createTextNode(`${maru} ${step.ask} は どれですか?`));
-  const sub = el('small', null, step.hint
-    ? `${step.hint} / しゃしんの 赤い わくを タップ`
-    : 'しゃしんの 赤い わくの 数字を えらんでください');
-  ask.append(sub);
+  ask.append(document.createTextNode(main));
+  ask.append(el('small', null, step.hint
+    ? `${step.hint} / 下の 数字を タップ`
+    : '下の 数字を えらんでください'));
+  $('#pickBack').hidden = pick.step === 0;
 
   // 写真(読めた数字に わくを出す)
   const box = $('#pickPhotos');
@@ -266,21 +292,17 @@ function renderPick() {
   photos.forEach((p, i) => {
     const nums = pick.numbers.filter((n) => n.photoIndex === i);
     if (!nums.length) return;
+    // 小さい写真の枠は、指でねらうには小さすぎる。ここは「見る」だけにして、
+    // 写真をタップしたら大きく見る画面を開く
     const wrap = el('div', 'pickphoto');
+    wrap.setAttribute('role', 'button');
+    wrap.setAttribute('aria-label', 'しゃしんを 大きく みる');
     const img = el('img');
     img.src = p.dataUrl;
     img.alt = `ずめん ${i + 1}`;
     wrap.append(img);
-    for (const n of nums) {
-      const b = el('div', 'box');
-      b.style.left = `${(n.bbox.x0 / p.width) * 100}%`;
-      b.style.top = `${(n.bbox.y0 / p.height) * 100}%`;
-      b.style.width = `${((n.bbox.x1 - n.bbox.x0) / p.width) * 100}%`;
-      b.style.height = `${((n.bbox.y1 - n.bbox.y0) / p.height) * 100}%`;
-      b.append(el('b', null, String(n.no)));
-      b.addEventListener('click', () => choosePick(n.mm));
-      wrap.append(b);
-    }
+    for (const n of nums) wrap.append(numberBox(n, p, 'box'));
+    wrap.addEventListener('click', () => openViewer(i));
     box.append(wrap);
   });
 
@@ -310,7 +332,9 @@ function choosePick(mm) {
   if (pick.step < steps.length - 1) {
     pick.step += 1;
     renderPick();
-    speak(`つぎは、${steps[pick.step].ask} です。`);
+    if (viewerPhoto !== null) { renderViewer(); centerOnLikely(); }
+    toast(`${mm} mm を えらびました`);
+    speak(`${mm}。つぎは、${steps[pick.step].ask} です。`);
     return;
   }
   const it = newItem(pick.kind);
@@ -322,16 +346,156 @@ function choosePick(mm) {
   pick.values = [];
   if (pick.kind === 'cove') {
     // 展開幅は図面に出ていないことが多いので、そのまま入力画面へ
-    toast('ながさを 入れました。つぎは てんかいはば です');
+    // 画面を移ってから知らせる(go() は前の画面の知らせを消すため)
     openForm(it.id);
+    toast('ながさを 入れました。つぎは てんかいはば です');
     return;
   }
-  toast(`${it.name} を たしました`);
   renderPick();
+  if (viewerPhoto !== null) { renderViewer(); centerOnLikely(); }
+  toast(`「${it.name}」を たしました`, {
+    label: 'もとに もどす',
+    onClick: () => {
+      project.items = project.items.filter((x) => x.id !== it.id);
+      pick.added = Math.max(0, pick.added - 1);
+      persist();
+      renderPick();
+      if (viewerPhoto !== null) renderViewer();
+    },
+  });
 }
 
+$('#pickBack').addEventListener('click', () => {
+  if (pick.step === 0) return;
+  pick.step -= 1;
+  pick.values.length = pick.step;
+  renderPick();
+  if (viewerPhoto !== null) renderViewer();
+  speak(`${PICK_STEPS[pick.kind][pick.step].ask} に もどりました。`);
+});
 $('#pickManual').addEventListener('click', () => go('items'));
 $('#pickDone').addEventListener('click', () => go('items'));
+$('#pickZoom').addEventListener('click', () => {
+  const first = pick.numbers.length ? pick.numbers[0].photoIndex : 0;
+  openViewer(first);
+});
+
+/** 読めた数字の枠。写真の大きさが変わっても位置がずれないよう % で置く */
+function numberBox(n, p, cls) {
+  const b = el('div', cls);
+  b.style.left = `${(n.bbox.x0 / p.width) * 100}%`;
+  b.style.top = `${(n.bbox.y0 / p.height) * 100}%`;
+  b.style.width = `${((n.bbox.x1 - n.bbox.x0) / p.width) * 100}%`;
+  b.style.height = `${((n.bbox.y1 - n.bbox.y0) / p.height) * 100}%`;
+  b.append(el('b', null, String(n.no)));
+  return b;
+}
+
+/* ------------------------------------------ 写真を大きく見て、数字を直接えらぶ */
+
+function openViewer(photoIndex) {
+  if (!photos[photoIndex]) return;
+  viewerPhoto = photoIndex;
+  $('#viewer').hidden = false;
+  document.body.style.overflow = 'hidden';
+  renderViewer();
+  centerOnLikely();
+}
+
+/**
+ * いま聞いていることの、いちばん有力な候補を画面の真ん中に出す。
+ * 図面の寸法は外まわりに並ぶので、ただ真ん中を出すと何もない壁しか映らない。
+ * ・幅、長さ …… 横書きのうち一番大きい数字(全体の幅であることが多い)
+ * ・高さ、奥行き … 縦書きのうち一番大きい数字。無ければ CH=… 、それも無ければ一番大きい数字
+ * 場所を見せるだけで、選ぶのは人。
+ */
+function centerOnLikely() {
+  if (viewerPhoto === null) return;
+  const p = photos[viewerPhoto];
+  const nums = pick.numbers.filter((n) => n.photoIndex === viewerPhoto);
+  if (!nums.length) return;
+  const { step } = pickQuestion();
+  const biggest = (list) => list.reduce((a, b) => (b.mm > a.mm ? b : a), list[0]);
+  let target;
+  if (step.key === 'widthMm' || step.key === 'lengthMm') {
+    const flat = nums.filter((n) => !n.rotated && !n.isHeight);
+    target = biggest(flat.length ? flat : nums);
+  } else {
+    const tall = nums.filter((n) => n.rotated);
+    const ch = nums.filter((n) => n.isHeight);
+    target = biggest(tall.length ? tall : ch.length ? ch : nums);
+  }
+  const body = $('#viewerBody');
+  const k = viewerWidth(p) / p.width;
+  body.scrollLeft = ((target.bbox.x0 + target.bbox.x1) / 2) * k - body.clientWidth / 2;
+  body.scrollTop = ((target.bbox.y0 + target.bbox.y1) / 2) * k - body.clientHeight / 2;
+}
+
+function closeViewer() {
+  viewerPhoto = null;
+  $('#viewer').hidden = true;
+  document.body.style.overflow = '';
+}
+
+function renderViewer() {
+  const p = photos[viewerPhoto];
+  const { step, main } = pickQuestion();
+  const ask = $('#viewerAsk');
+  ask.innerHTML = '';
+  ask.append(document.createTextNode(main));
+  ask.append(el('small', null, step.hint ? `${step.hint} / 赤い 数字を タップ` : '赤い 数字を タップ'));
+
+  const body = $('#viewerBody');
+  const keepX = body.scrollLeft;
+  const keepY = body.scrollTop;
+  body.innerHTML = '';
+  // 画面の何倍の幅で出すか。3.5 倍で、図面の寸法の字が老眼でも読める大きさになる
+  const wrap = el('div', 'viewer-img');
+  wrap.style.width = `${viewerWidth(p)}px`;
+  $('#zoomIn').disabled = viewerZoom >= ZOOMS.length - 1 || viewerWidth(p) >= p.width;
+  $('#zoomOut').disabled = viewerZoom <= 0;
+  const img = el('img');
+  img.src = p.dataUrl;
+  img.alt = 'ずめん';
+  wrap.append(img);
+  const chosen = new Set(pick.values);
+  for (const n of pick.numbers.filter((x) => x.photoIndex === viewerPhoto)) {
+    const b = numberBox(n, p, 'vbox' + (chosen.has(n.mm) ? ' chosen' : ''));
+    b.setAttribute('role', 'button');
+    b.setAttribute('aria-label', `${n.mm} ミリ`);
+    b.addEventListener('click', (e) => { e.stopPropagation(); choosePick(n.mm); });
+    wrap.append(b);
+  }
+  body.append(wrap);
+  body.scrollLeft = keepX;
+  body.scrollTop = keepY;
+}
+
+const ZOOMS = [1.5, 2.5, 3.5, 5];
+let viewerZoom = 2; // 3.5 倍から始める
+
+function viewerWidth(p) {
+  return Math.min(p.width, Math.round(window.innerWidth * ZOOMS[viewerZoom]));
+}
+
+/** 大きさを変えても、いま見ているところが画面の真ん中に残るようにする */
+function zoomViewer(delta) {
+  const next = Math.max(0, Math.min(ZOOMS.length - 1, viewerZoom + delta));
+  if (next === viewerZoom) return;
+  const body = $('#viewerBody');
+  const before = body.scrollWidth || 1;
+  const cx = (body.scrollLeft + body.clientWidth / 2) / before;
+  const cy = (body.scrollTop + body.clientHeight / 2) / (body.scrollHeight || 1);
+  viewerZoom = next;
+  renderViewer();
+  body.scrollLeft = cx * body.scrollWidth - body.clientWidth / 2;
+  body.scrollTop = cy * body.scrollHeight - body.clientHeight / 2;
+}
+
+$('#zoomIn').addEventListener('click', () => zoomViewer(+1));
+$('#zoomOut').addEventListener('click', () => zoomViewer(-1));
+$('#viewerClose').addEventListener('click', closeViewer);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && viewerPhoto !== null) closeViewer(); });
 
 /* ============================================================ 面の一覧 */
 $('#projTitle').addEventListener('input', (e) => { project.title = e.target.value; persist(); });
@@ -434,10 +598,19 @@ function openForm(id) {
 
 $('#formOk').addEventListener('click', () => go('items'));
 $('#formDelete').addEventListener('click', () => {
-  if (!confirm('この めんを けしますか?')) return;
-  project.items = project.items.filter((i) => i.id !== editingId);
+  const at = project.items.findIndex((i) => i.id === editingId);
+  if (at < 0) return go('items');
+  const [gone] = project.items.splice(at, 1);
   persist();
   go('items');
+  toast(`「${gone.name || KIND_LABELS[gone.kind]}」を けしました`, {
+    label: 'もとに もどす',
+    onClick: () => {
+      project.items.splice(Math.min(at, project.items.length), 0, gone);
+      persist();
+      renderItems();
+    },
+  });
 });
 
 function textField(label, value, onChange) {
@@ -526,39 +699,82 @@ function productPicker(it) {
 function openingBlock(it) {
   const f = el('div', 'field');
   f.append(el('label', null, 'まど・ドア'));
-  const hint = el('div', 'hint', project.options.deductOpenings
-    ? 'せっていで「ひく」に なっています'
-    : 'ふつうは ひきません(切りしろで なくなるため)。せっていで かえられます');
-  f.append(hint);
-  const list = el('div', 'list');
+
+  // 引く/引かないは設定と同じもの。ここでも切りかえられるようにしておく
+  const t = el('label', 'toggle' + (project.options.deductOpenings ? ' on' : ''));
+  const cb = el('input');
+  cb.type = 'checkbox';
+  cb.checked = !!project.options.deductOpenings;
+  cb.addEventListener('change', () => {
+    project.options.deductOpenings = cb.checked;
+    t.classList.toggle('on', cb.checked);
+    persist();
+  });
+  t.append(cb, document.createTextNode('まど・ドアの ぶんを ひく'));
+  f.append(t);
+  f.append(el('div', 'hint', 'ふつうは ひきません。小さい まどは 切りしろで なくなるためです。'
+    + ' 大きな はきだし窓などが あるときだけ ひいてください'));
+
+  const list = el('div', 'openings');
   const draw = () => {
     list.innerHTML = '';
-    (it.openings || []).forEach((op, i) => {
-      const b = el('button', 'item');
-      b.append(el('span', 'tag', 'まど'));
-      const body = el('div', 'body');
-      body.append(el('div', 'nm', op.name || `まど ${i + 1}`));
-      body.append(el('div', 'dim', `よこ ${op.w} × たて ${op.h} / ひだりから ${op.x} / ゆかから ${op.y} mm`));
-      b.append(body, el('span', 'go', '✕'));
-      b.addEventListener('click', () => {
-        if (!confirm('この まどを けしますか?')) return;
-        it.openings.splice(i, 1); persist(); draw();
+    const ops = it.openings || [];
+    if (ops.length) list.append(figureOpening());
+    ops.forEach((op, i) => {
+      const card = el('div', 'opening');
+      const head = el('div', 'ophead');
+      head.append(el('b', null, op.name || `まど ${i + 1}`));
+      const del = el('button', 'flat danger small', 'けす');
+      del.type = 'button';
+      del.addEventListener('click', () => {
+        const [gone] = it.openings.splice(i, 1);
+        persist();
+        draw();
+        toast(`「${gone.name}」を けしました`, {
+          label: 'もとに もどす',
+          onClick: () => { it.openings.splice(i, 0, gone); persist(); draw(); },
+        });
       });
-      list.append(b);
+      head.append(del);
+      card.append(head);
+      card.append(numField('① まどの よこはば', op.w, 50, (v) => { op.w = v; persist(); }));
+      card.append(numField('② まどの たかさ', op.h, 50, (v) => { op.h = v; persist(); }));
+      card.append(numField('③ かべの ひだりはし から', op.x, 50, (v) => { op.x = v; persist(); }));
+      card.append(numField('④ ゆか から まどの した まで', op.y, 50, (v) => { op.y = v; persist(); },
+        'ドアなら 0'));
+      list.append(card);
     });
   };
   draw();
   const add = el('button', 'add', '＋ まど・ドアを たす');
+  add.type = 'button';
   add.addEventListener('click', () => {
-    const w = prompt('まどの よこはば (mm)', '1800'); if (w === null) return;
-    const h = prompt('まどの たかさ (mm)', '1200'); if (h === null) return;
-    const x = prompt('かべの ひだり はしから まどまで (mm)', '900'); if (x === null) return;
-    const y = prompt('ゆかから まどの したまで (mm)', '900'); if (y === null) return;
     it.openings = it.openings || [];
-    it.openings.push({ name: `まど ${it.openings.length + 1}`, w: nz(w), h: nz(h), x: nz(x), y: nz(y) });
-    persist(); draw();
+    it.openings.push({ name: `まど ${it.openings.length + 1}`, w: 1800, h: 1200, x: 900, y: 900 });
+    persist();
+    draw();
+    list.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
   f.append(list, add);
+  return f;
+}
+
+function figureOpening() {
+  const f = el('div', 'figure');
+  f.innerHTML = `
+  <svg viewBox="0 0 340 170" role="img" aria-label="まど・ドアの 寸法のとりかた">
+    <rect x="20" y="10" width="300" height="140" fill="none" stroke="currentColor" stroke-width="2"/>
+    <rect x="120" y="40" width="130" height="70" fill="none" stroke="currentColor" stroke-width="5"/>
+    <path d="M120 30 H250 M120 24 v12 M250 24 v12" fill="none" stroke="currentColor" stroke-width="2"/>
+    <text x="150" y="22" font-size="15" font-weight="700" fill="currentColor">①よこはば</text>
+    <path d="M262 40 V110 M256 40 h12 M256 110 h12" fill="none" stroke="currentColor" stroke-width="2"/>
+    <text x="272" y="80" font-size="15" font-weight="700" fill="currentColor">②たかさ</text>
+    <path d="M20 125 H120 M20 119 v12 M120 119 v12" fill="none" stroke="currentColor" stroke-width="2"/>
+    <text x="26" y="118" font-size="14" font-weight="700" fill="currentColor">③ひだりから</text>
+    <path d="M185 110 V150 M179 110 h12 M179 150 h12" fill="none" stroke="currentColor" stroke-width="2"/>
+    <text x="196" y="138" font-size="14" font-weight="700" fill="currentColor">④ゆかから</text>
+    <text x="20" y="166" font-size="12" fill="currentColor">かべを 正面から みたところ</text>
+  </svg>`;
   return f;
 }
 

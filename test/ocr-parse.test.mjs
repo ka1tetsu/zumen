@@ -76,3 +76,80 @@ test('同じ値はまとめて、どの番号だったかを覚えておく', ()
   assert.equal(u.length, 2);
   assert.deepEqual(u[0], { mm: 2400, nos: [1, 2], isHeight: false });
 });
+
+import { mergeNumbers, unrotateBox } from '../public/ocr-parse.js';
+
+test('90°回して読んだ枠を、元の写真の座標に戻す', () => {
+  // 元 W=200, H=100 の写真。左の縦書き (x 10..30, y 20..80) は、
+  // 時計回りに 90° 回した画像 (幅 100, 高さ 200) では (x 20..80, y 10..30) にある
+  const back = unrotateBox({ x0: 20, y0: 10, x1: 80, y1: 30 }, 100, 200, 90);
+  assert.deepEqual(back, { x0: 10, y0: 20, x1: 30, y1: 80 });
+});
+
+test('270°回して読んだ枠も、元の座標に戻せる', () => {
+  // 元 W=200, H=100。(x 10..30, y 20..80) は反時計回りに 90° 回すと (x 20..80, y 170..190)
+  const back = unrotateBox({ x0: 20, y0: 170, x1: 80, y1: 190 }, 100, 200, 270);
+  assert.deepEqual(back, { x0: 10, y0: 20, x1: 30, y1: 80 });
+});
+
+test('回さずに読んだ枠は、そのまま', () => {
+  const b = { x0: 1, y0: 2, x1: 3, y1: 4 };
+  assert.deepEqual(unrotateBox(b, 9, 9, 0), b);
+});
+
+const box = (x0, y0, x1, y1) => ({ x0, y0, x1, y1 });
+
+test('同じ場所で2回見つかった数字は、1つにまとめる', () => {
+  const got = mergeNumbers([
+    { mm: 2400, conf: 90, bbox: box(10, 10, 70, 30) },
+    { mm: 2400, conf: 80, bbox: box(12, 11, 71, 31) },
+  ]);
+  assert.equal(got.length, 1);
+  assert.equal(got[0].conf, 90);
+});
+
+test('向きを間違えて読んだ低い自信の数字は、正しいほうに負ける', () => {
+  const got = mergeNumbers([
+    { mm: 1820, conf: 95, bbox: box(100, 100, 180, 130) },
+    { mm: 281, conf: 45, bbox: box(110, 95, 175, 135) }, // 同じ場所のでたらめ
+  ]);
+  assert.deepEqual(got.map((g) => g.mm), [1820]);
+});
+
+test('離れた場所の同じ値は、別の寸法として両方残す', () => {
+  const got = mergeNumbers([
+    { mm: 910, conf: 90, bbox: box(0, 500, 60, 530) },
+    { mm: 910, conf: 90, bbox: box(900, 500, 960, 530) },
+  ]);
+  assert.equal(got.length, 2);
+  assert.deepEqual(got.map((g) => g.no), [1, 2]);
+});
+
+import { looksTruncated } from '../public/ocr-parse.js';
+
+test('カンマで始まる数字は、頭が欠けたものと見分ける', () => {
+  assert.equal(looksTruncated(',640'), true, '本当は 3,640');
+  assert.equal(looksTruncated(', 400'), true);
+  assert.equal(looksTruncated('3,640'), false);
+  assert.equal(looksTruncated('CH=2,400'), false);
+  assert.equal(looksTruncated('910'), false);
+  assert.equal(looksTruncated('2.4m'), false);
+});
+
+test('頭が欠けた数字は、読み直し候補として印をつけて残す', () => {
+  const [n] = parseNumbers([w(',640')]);
+  assert.equal(n.truncated, true);
+  assert.equal(n.mm, 640, '読み直しで「640 で終わる数字」を探す手がかりになる');
+});
+
+test('頭が欠けて 100mm 未満になったものも、読み直し候補として残す', () => {
+  // 2,040 の「2」が落ちると「,040」= 40。ふつうなら捨てる値だが、読み直せば 2040 に戻る
+  const [n] = parseNumbers([w(',040')]);
+  assert.equal(n.truncated, true);
+  assert.equal(n.mm, 40);
+});
+
+test('ふつうの数字には読み直しの印をつけない', () => {
+  const [n] = parseNumbers([w('3,640')]);
+  assert.equal(n.truncated, false);
+});
